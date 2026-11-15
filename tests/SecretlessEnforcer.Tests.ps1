@@ -70,6 +70,36 @@ Describe 'Autonomous Secretless Enforcer - Verification Matrix' {
             $res.SeverityTier | Should -Be 'LOW_READONLY_SPN'
             $res.RecommendedAction | Should -Be 'ADVISORY_OIDC_PR'
         }
+
+        It 'AI-03: Fails closed when -UseLiveFoundry is set without -FoundryEndpoint and supports mocked live Foundry REST call' {
+            $spn = [PSCustomObject]@{
+                AppId            = '66666666-6666-6666-6666-666666666666'
+                DisplayName      = 'sp-contoso-telemetry-reader'
+                GraphPermissions = @('User.Read')
+                AzureRbacRoles   = @('Reader')
+                SecretAgeDays    = 15
+                HasFederatedOidc = $true
+            }
+
+            { & $script:ClassifierPath -ServicePrincipalContext $spn -UseLiveFoundry } | Should -Throw '*FoundryEndpoint*'
+
+            Mock Invoke-RestMethod {
+                return [PSCustomObject]@{
+                    choices = @(
+                        [PSCustomObject]@{
+                            message = [PSCustomObject]@{
+                                content = '{"severityTier":"LOW_READONLY_SPN","recommendedAction":"ADVISORY_OIDC_PR","rationale":"Low-privilege read-only SPN."}'
+                            }
+                        }
+                    )
+                }
+            }
+
+            $res = & $script:ClassifierPath -ServicePrincipalContext $spn -UseLiveFoundry -FoundryEndpoint 'https://contoso-foundry.openai.azure.com' -FoundryApiKey 'test-key'
+            $res.InferenceMode | Should -Be 'LIVE_FOUNDRY'
+            $res.SeverityTier | Should -Be 'LOW_READONLY_SPN'
+            Should -Invoke Invoke-RestMethod -Times 1
+        }
     }
 
     Context 'Deterministic Enforcement & Graph v2.x Watchdog Tests' {
